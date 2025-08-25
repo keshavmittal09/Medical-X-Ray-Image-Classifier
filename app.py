@@ -8,7 +8,7 @@ import os
 
 # ---------- Config ----------
 CLASSES = ["Normal", "Pneumonia"]  # Change if your dataset has different labels
-MODEL_PATH = "model/best_model.pth"
+MODEL_PATH = "best_model.pth"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Image transforms (common for ResNet)
@@ -63,3 +63,4 @@ demo = gr.Interface(
 
 if __name__ == "__main__":
     demo.launch()
+
