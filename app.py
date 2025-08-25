@@ -1,66 +1,60 @@
+mport gradio as gr
 import torch
 import torch.nn as nn
-from torchvision import models, transforms
+import torchvision.transforms as transforms
+from torchvision import models
 from PIL import Image
-import gradio as gr
-import numpy as np
-import os
 
-# ---------- Config ----------
-CLASSES = ["Normal", "Pneumonia"]  # Change if your dataset has different labels
-MODEL_PATH = "best_model.pth"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# -------------------------
+# Load Model
+# -------------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Image transforms (common for ResNet)
-IMG_TFMS = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
+# Define the same model architecture you trained
+model = models.resnet50(pretrained=False)
+num_ftrs = model.fc.in_features
+model.fc = nn.Linear(num_ftrs, 2)  # Assuming 2 classes: Normal vs Pneumonia
+
+# Load trained weights
+model.load_state_dict(torch.load("best_model.pth", map_location=device))
+model.to(device)
+model.eval()
+
+# -------------------------
+# Define Image Transform
+# -------------------------
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),   # resize to match ResNet input
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
+    transforms.Normalize([0.485, 0.456, 0.406],
+                         [0.229, 0.224, 0.225])
 ])
 
-# ---------- Model ----------
-def load_model():
-    model = models.resnet50(weights=None)
-    num_feats = model.fc.in_features
-    model.fc = nn.Linear(num_feats, len(CLASSES))
-    state = torch.load(MODEL_PATH, map_location="cpu")
-    model.load_state_dict(state)
-    model.eval()
-    model.to(DEVICE)
-    return model
-
-MODEL = load_model()
-
-# ---------- Inference ----------
-@torch.inference_mode()
+# -------------------------
+# Prediction Function
+# -------------------------
 def predict(img):
-    inputs = transform(img).unsqueeze(0)
+    img = Image.fromarray(img)  # Ensure PIL format
+    inputs = transform(img).unsqueeze(0).to(device)
+
     with torch.no_grad():
         outputs = model(inputs)
-        probs = torch.nn.functional.softmax(outputs[0], dim=0)
-        pred = torch.argmax(probs).item()
-    result = CLASSES[pred]
-    prob_str = {CLASSES[i]: float(probs[i]) for i in range(len(CLASSES))}
-    return result, str(prob_str)
+        _, preds = torch.max(outputs, 1)
 
-# ---------- UI ----------
-disclaimer = "⚠️ This is a demo. Not for medical use."
+    classes = ["Normal", "Pneumonia"]  # Change if you trained on more classes
+    return {classes[0]: float(torch.softmax(outputs, 1)[0][0]),
+            classes[1]: float(torch.softmax(outputs, 1)[0][1])}
 
-demo = gr.Interface(
+# -------------------------
+# Gradio Interface
+# -------------------------
+interface = gr.Interface(
     fn=predict,
-    inputs=gr.Image(type="pil", label="Upload X-ray"),
-    outputs=[
-        gr.Label(label="Prediction"),
-        gr.Textbox(label="Probabilities (per class)"),
-    ],
-    title="Chest X-ray Classifier",
-    description="ResNet50 model trained to classify Normal vs Pneumonia X-rays. ⚠️ Not for medical use.",
+    inputs=gr.Image(type="numpy", label="Upload an X-ray"),
+    outputs=gr.Label(num_top_classes=2, label="Prediction"),
+    title="Medical X-Ray Classifier",
+    description="Upload a chest X-ray to check if it looks Normal or Pneumonia (AI-based)."
 )
 
-
-
 if __name__ == "__main__":
-    demo.launch()
-
+    interface.launch()
